@@ -7,6 +7,9 @@ import (
 	_"net/http/pprof"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"github.com/gobasis/log"
 )
 
 type runEnvType struct {}
@@ -45,4 +48,42 @@ func (_ runEnvType) Setup(kOrv ...interface{}) {
 			http.ListenAndServe(fmt.Sprintf(":%v", params["pprof"]), nil)
 		}()
 	}
+}
+
+/*
+Description:
+Get a channel that will be closed when a shutdown signal has been
+triggered either from an OS signal such as SIGINT (Ctrl+C) or from
+another subsystem such as the RPC server.
+ * Author: architect.bian
+ * Date: 2018/10/31 11:30
+ */
+func (_ runEnvType) NewInterruptChan() <-chan struct{} {
+	c := make(chan struct{})
+	go func() {
+		// interruptSignals defines the default signals to catch in order to do a proper
+		// shutdown.  This may be modified during init depending on the platform.
+		var interruptSignals = []os.Signal{os.Interrupt}
+		interruptChannel := make(chan os.Signal, 1)
+		signal.Notify(interruptChannel, interruptSignals...)
+
+		// Listen for initial shutdown signal and close the returned
+		// channel to notify the caller.
+		select {
+		case sig := <-interruptChannel:
+			log.Info("received signal. Now shutting down...", "signal", sig)
+		}
+		close(c)
+
+		// Listen for repeated signals and display a message so the user
+		// knows the shutdown is in progress and the process is not hung.
+		for {
+			select {
+			case sig := <-interruptChannel:
+				log.Info("received signal. Now shutting down...", "signal", sig)
+			}
+		}
+	}()
+
+	return c
 }
